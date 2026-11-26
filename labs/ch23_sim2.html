@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>The Effective Thickness Tax</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; color: #1a1a1a; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); padding: 30px; width: 90%; max-width: 900px; }
+        .viz-container { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+        canvas { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; flex: 1; min-width: 300px; }
+        .ui { width: 280px; display: flex; flex-direction: column; gap: 15px; }
+        .slider-box { display: flex; flex-direction: column; }
+        .label-row { display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: bold; margin-bottom: 5px; }
+        .data-panel { margin-top: 20px; padding-top: 20px; border-top: 2px solid #eee; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .data-card { background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 5px solid #2196F3; }
+        .data-val { font-size: 1.5rem; color: #0d47a1; display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Effective Thickness Scalloping</h1>
+        <div class="viz-container">
+            <canvas id="profileCanvas" width="500" height="300"></canvas>
+            <div class="ui">
+                <div class="slider-box">
+                    <div class="label-row"><span>Nominal Width (t)</span><span id="tText">2.0 mm</span></div>
+                    <input type="range" id="tIn" min="1.0" max="5.0" step="0.1" value="2.0">
+                </div>
+                <div class="slider-box">
+                    <div class="label-row"><span>Layer Height (h)</span><span id="hText">0.4 mm</span></div>
+                    <input type="range" id="hIn" min="0.05" max="0.8" step="0.01" value="0.4">
+                </div>
+                <div class="slider-box">
+                    <div class="label-row"><span>Print Angle (θ)</span><span id="aText">45°</span></div>
+                    <input type="range" id="aIn" min="0" max="85" step="1" value="45">
+                </div>
+            </div>
+        </div>
+        <div class="data-panel">
+            <div class="data-card">
+                <span style="font-size: 0.8rem; color: #666;">STIFFNESS RATIO (K_eff / K_nom)</span>
+                <span class="data-val" id="kRatio">100%</span>
+            </div>
+            <div class="data-card" style="border-color: #ff9800;">
+                <span style="font-size: 0.8rem; color: #666;">THE CUBIC TAX</span>
+                <span class="data-val" id="kTax">0%</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('profileCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function draw() {
+            const t = parseFloat(document.getElementById('tIn').value);
+            const h = parseFloat(document.getElementById('hIn').value);
+            const angle = parseFloat(document.getElementById('aIn').value) * Math.PI / 180;
+
+            document.getElementById('tText').innerText = t.toFixed(1) + ' mm';
+            document.getElementById('hText').innerText = h.toFixed(2) + ' mm';
+            document.getElementById('aText').innerText = (angle * 180 / Math.PI).toFixed(0) + '°';
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const scale = 50; // pixels per mm
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            // Draw Nominal Beam
+            ctx.fillStyle = 'rgba(33, 150, 243, 0.1)';
+            ctx.fillRect(cx - (t*scale)/2, 20, t*scale, canvas.height-40);
+            ctx.strokeStyle = '#2196F3';
+            ctx.setLineDash([5,5]);
+            ctx.strokeRect(cx - (t*scale)/2, 20, t*scale, canvas.height-40);
+
+            // Draw Scalloped Layers
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#455a64';
+            ctx.strokeStyle = '#263238';
+            
+            const numLayers = Math.ceil((canvas.height - 40) / (h * scale));
+            const xOffset = Math.tan(angle) * (h * scale);
+            
+            let maxScallop = 0;
+
+            for (let i = 0; i < numLayers; i++) {
+                const y = 20 + i * h * scale;
+                const shift = (i - numLayers/2) * xOffset;
+                const rectW = t * scale;
+                
+                // Draw bead (rounded rectangle)
+                const r = (h * scale) / 2;
+                const x = cx - rectW/2 + shift;
+                
+                ctx.beginPath();
+                ctx.roundRect(x, y, rectW, h * scale, r);
+                ctx.fill();
+                ctx.stroke();
+
+                // Calculate effective loss at the neck
+                const scallopDepth = (h/2) * Math.cos(angle);
+                if(scallopDepth > maxScallop) maxScallop = scallopDepth;
+            }
+
+            const t_eff = t - 2 * maxScallop;
+            const k_ratio = Math.pow(t_eff / t, 3);
+            
+            document.getElementById('kRatio').innerText = (k_ratio * 100).toFixed(1) + '%';
+            document.getElementById('kTax').innerText = '-' + ((1 - k_ratio) * 100).toFixed(1) + '%';
+
+            // Draw effective thickness lines
+            ctx.strokeStyle = '#f44336';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx - (t_eff*scale)/2, 0); ctx.lineTo(cx - (t_eff*scale)/2, canvas.height);
+            ctx.moveTo(cx + (t_eff*scale)/2, 0); ctx.lineTo(cx + (t_eff*scale)/2, canvas.height);
+            ctx.stroke();
+        }
+
+        ['tIn', 'hIn', 'aIn'].forEach(id => document.getElementById(id).addEventListener('input', draw));
+        draw();
+    </script>
+</body>
+</html>

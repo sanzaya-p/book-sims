@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>m-EDA Adjoint Sensitivity Sculpting</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
+        h2 { margin-top: 20px; color: #4db8ff; }
+        .container { display: flex; flex-direction: column; align-items: center; max-width: 900px; width: 100%; padding: 20px; }
+        #canvas-container { position: relative; background: #1e1e1e; border: 1px solid #333; border-radius: 8px; margin: 20px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        canvas { display: block; }
+        .controls { width: 100%; background: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .slider-group { display: flex; flex-direction: column; gap: 8px; }
+        label { font-size: 0.9em; color: #aaa; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        .value-display { color: #4db8ff; font-weight: bold; }
+        .math-box { margin-top: 20px; font-style: italic; color: #888; font-size: 0.85em; text-align: center; }
+        .sensitivity-grid { display: flex; justify-content: center; gap: 4px; margin-top: 10px; }
+        .cell-ui { display: flex; flex-direction: column; align-items: center; border: 1px solid #444; padding: 5px; background: #252525; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h2>m-EDA Sensitivity Sculpting</h2>
+    <div class="container">
+        <div id="canvas-container">
+            <canvas id="mainCanvas" width="800" height="200"></canvas>
+        </div>
+
+        <div class="controls">
+            <div class="slider-group">
+                <label>Tip Load Force: <span id="force-val" class="value-display">10</span> N</label>
+                <input type="range" id="force" min="1" max="100" value="20">
+            </div>
+            <div class="slider-group">
+                <label>SIMP Penalization (p): <span id="penal-val" class="value-display">3.0</span></label>
+                <input type="range" id="penal" min="1" max="5" step="0.1" value="3">
+            </div>
+        </div>
+
+        <h4>Density Controls (&chi;)</h4>
+        <div class="sensitivity-grid" id="density-controls"></div>
+
+        <div class="math-box">
+            Governing Equation: dV/d&chi; = u<sup>T</sup>(dK/d&chi;)u &nbsp; | &nbsp; SIMP Model: K = &chi;<sup>p</sup>K<sub>0</sub>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const nElements = 10;
+        let densities = new Array(nElements).fill(1.0);
+        const kBase = 100;
+
+        function initUI() {
+            const container = document.getElementById('density-controls');
+            for (let i = 0; i < nElements; i++) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'cell-ui';
+                const label = document.createElement('div');
+                label.style.fontSize = '0.7em';
+                label.innerText = `E${i+1}`;
+                
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.min = '0.01';
+                slider.max = '1.0';
+                slider.step = '0.01';
+                slider.value = '1.0';
+                slider.style.orient = 'vertical';
+                slider.style.appearance = 'slider-vertical';
+                slider.style.width = '20px';
+                slider.style.height = '60px';
+                slider.oninput = (e) => {
+                    densities[i] = parseFloat(e.target.value);
+                    update();
+                };
+                
+                wrapper.appendChild(label);
+                wrapper.appendChild(slider);
+                container.appendChild(wrapper);
+            }
+        }
+
+        function update() {
+            const force = parseFloat(document.getElementById('force').value);
+            const penal = parseFloat(document.getElementById('penal').value);
+            document.getElementById('force-val').innerText = force;
+            document.getElementById('penal-val').innerText = penal.toFixed(1);
+
+            // Solve 1D displacement
+            let u = [0];
+            let currentU = 0;
+            let ks = densities.map(d => Math.pow(d, penal) * kBase);
+            
+            for (let i = 0; i < nElements; i++) {
+                let du = force / ks[i];
+                currentU += du;
+                u.push(currentU);
+            }
+
+            // Sensitivity Calculation
+            let sensitivities = densities.map((d, i) => {
+                let du = u[i+1] - u[i];
+                let dkdchi = penal * Math.pow(d, penal - 1) * kBase;
+                return Math.pow(du, 2) * dkdchi;
+            });
+
+            draw(u, sensitivities);
+        }
+
+        function draw(u, sens) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const margin = 50;
+            const beamY = canvas.height / 2;
+            const segmentWidth = (canvas.width - 2 * margin) / nElements;
+            const scaleDisp = 0.5; // Visual scaling for displacement
+
+            // Find max sensitivity for color scaling
+            const maxSens = Math.max(...sens, 1e-6);
+
+            // Draw segments
+            for (let i = 0; i < nElements; i++) {
+                const x1 = margin + i * segmentWidth;
+                const x2 = margin + (i + 1) * segmentWidth;
+                const u1 = u[i] * scaleDisp;
+                const u2 = u[i+1] * scaleDisp;
+
+                // Sensitivity Color
+                const ratio = sens[i] / maxSens;
+                const r = Math.floor(100 + 155 * ratio);
+                const g = Math.floor(100 * (1 - ratio));
+                const b = Math.floor(255 * (1 - ratio));
+                
+                ctx.beginPath();
+                ctx.lineWidth = 10 * densities[i] + 2;
+                ctx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
+                ctx.moveTo(x1 + u1, beamY);
+                ctx.lineTo(x2 + u2, beamY);
+                ctx.stroke();
+
+                // Sensitivity value text
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px Arial';
+                ctx.fillText(sens[i].toFixed(1), x1 + (x2 - x1) / 2 + u1, beamY - 15);
+            }
+
+            // Draw nodes
+            ctx.fillStyle = '#4db8ff';
+            for (let i = 0; i <= nElements; i++) {
+                const x = margin + i * segmentWidth + u[i] * scaleDisp;
+                ctx.beginPath();
+                ctx.arc(x, beamY, 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Fixed support label
+            ctx.fillStyle = '#888';
+            ctx.fillText("FIXED", margin - 40, beamY + 5);
+            ctx.fillText("FORCE →", margin + nElements * segmentWidth + u[nElements] * scaleDisp + 10, beamY + 5);
+        }
+
+        document.getElementById('force').oninput = update;
+        document.getElementById('penal').oninput = update;
+
+        initUI();
+        update();
+    </script>
+</body>
+</html>

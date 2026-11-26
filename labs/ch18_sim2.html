@@ -1,0 +1,148 @@
+<!DOCTYPE html><html><head><style>
+body { background: #0e0e12; color: #00ff41; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
+.ui-layer { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #00ff41; border-radius: 4px; }
+input[type=range] { width: 200px; cursor: pointer; }
+canvas { display: block; }
+.label { font-weight: bold; color: #fff; margin-bottom: 5px; display: block; }
+.warning { color: #ff3e3e; font-size: 0.8em; margin-top: 5px; }
+</style></head><body>
+<div class="ui-layer">
+    <div class="label">2-BIT TEMPORAL CASCADE</div>
+    <div>Frequency: <span id="f-val">1.5</span> Hz</div>
+    <input type="range" id="freq" min="0.5" max="3.0" step="0.1" value="1.5"><br>
+    <div>Damping (ζ): <span id="d-val">0.05</span></div>
+    <input type="range" id="damp" min="0.01" max="0.5" step="0.01" value="0.05"><br>
+    <button id="resetBtn" style="margin-top:10px; background:#00ff41; color:#000; border:none; padding:5px 10px; font-family:inherit; cursor:pointer;">RESET SYSTEM</button>
+    <div id="status" class="warning"></div>
+</div>
+<canvas id="simCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+const freqInput = document.getElementById('freq');
+const dampInput = document.getElementById('damp');
+const statusEl = document.getElementById('status');
+
+let q0 = -1, v0 = 0, q1 = -1, v1 = 0;
+let t = 0;
+const dt = 0.016; // ~60fps
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.onresize = resize;
+resize();
+
+function getForce(q) { return (q - Math.pow(q, 3)); }
+
+function update() {
+    const freq = parseFloat(freqInput.value);
+    const damping = parseFloat(dampInput.value);
+    const period = 1.0 / freq;
+
+    // External Pulse Logic
+    let f_ext = 0;
+    if (t % period < 0.1 && t % period > 0) {
+        f_ext = 30.0;
+    }
+
+    // LSB Step
+    let a0 = getForce(q0) - damping * v0 + f_ext;
+    v0 += a0 * dt;
+    let q0_next = q0 + v0 * dt;
+
+    // Carry Pulse
+    let f_carry = 0;
+    if (q0 > 0 && q0_next <= 0) {
+        f_carry = 30.0;
+    }
+
+    // MSB Step
+    let a1 = getForce(q1) - damping * v1 + f_carry;
+    v1 += a1 * dt;
+    q1 += v1 * dt;
+    q0 = q0_next;
+
+    t += dt;
+
+    // Check for acoustic interference
+    if (damping < 0.08 && freq > 1.2) {
+        statusEl.innerText = "WARNING: ACOUSTIC PRESENT HORIZON REACHED - INTERFERENCE ACTIVE";
+    } else {
+        statusEl.innerText = "";
+    }
+
+    draw();
+    requestAnimationFrame(update);
+}
+
+function draw() {
+    ctx.fillStyle = '#0e0e12';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const centerY = canvas.height / 2;
+    const centerX = canvas.width / 2;
+    const scaleX = 120;
+
+    // Draw Wells
+    for (let i = 0; i < 2; i++) {
+        let offsetX = (i === 0) ? -200 : 200;
+        ctx.beginPath();
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 2;
+        for (let x = -2; x <= 2; x += 0.1) {
+            // Potential V = 1/4x^4 - 1/2x^2
+            let pot = (0.25 * Math.pow(x, 4) - 0.5 * Math.pow(x, 2)) * 100;
+            let px = centerX + offsetX + x * scaleX;
+            let py = centerY + 100 + pot;
+            if (x === -2) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+
+        // Bit State
+        let bitQ = (i === 0) ? q0 : q1;
+        let bitV = (i === 0) ? v0 : v1;
+        let ballX = centerX + offsetX + bitQ * scaleX;
+        let ballY = centerY + 100 + (0.25 * Math.pow(bitQ, 4) - 0.5 * Math.pow(bitQ, 2)) * 100;
+
+        // Glow
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00ff41';
+        ctx.fillStyle = (bitQ > 0) ? '#00ff41' : '#004411';
+        ctx.beginPath();
+        ctx.arc(ballX, ballY, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Labels
+        ctx.fillStyle = '#fff';
+        ctx.font = '20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(i === 0 ? "BIT 0 (LSB)" : "BIT 1 (MSB)", centerX + offsetX, centerY - 150);
+        ctx.fillText(bitQ > 0 ? "1" : "0", centerX + offsetX, centerY - 120);
+    }
+
+    // Logic Readout
+    ctx.font = '40px Courier New';
+    ctx.fillStyle = '#00ff41';
+    let binary = (q1 > 0 ? "1" : "0") + (q0 > 0 ? "1" : "0");
+    ctx.fillText("COUNT: " + binary, centerX, centerY + 250);
+
+    // Pulse indicator
+    if (t % (1.0 / parseFloat(freqInput.value)) < 0.1) {
+        ctx.fillStyle = '#ff3e3e';
+        ctx.fillText("INPUT PULSE", centerX - 200, centerY - 200);
+    }
+}
+
+document.getElementById('resetBtn').onclick = () => {
+    q0 = -1; v0 = 0; q1 = -1; v1 = 0; t = 0;
+};
+
+freqInput.oninput = () => document.getElementById('f-val').innerText = freqInput.value;
+dampInput.oninput = () => document.getElementById('d-val').innerText = dampInput.value;
+
+update();
+</script></body></html>

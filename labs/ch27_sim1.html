@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hadal Logic Well Simulator</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        canvas { background: #1e1e1e; border: 1px solid #444; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .controls { background: #252525; padding: 20px; border-radius: 8px; margin-top: 20px; width: 600px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .slider-group { display: flex; flex-direction: column; }
+        label { font-size: 0.9em; margin-bottom: 5px; color: #aaa; }
+        .metric { font-family: monospace; color: #00ffcc; font-weight: bold; }
+        .warning { color: #ff5555; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>Hadal Logic: Potential Well Deformation</h2>
+    <canvas id="simCanvas" width="600" height="300"></canvas>
+    
+    <div class="controls">
+        <div class="slider-group">
+            <label>Hydrostatic Pressure (P): <span id="pVal" class="metric">0</span> MPa</label>
+            <input type="range" id="pRange" min="0" max="150" value="0" step="1">
+        </div>
+        <div class="slider-group">
+            <label>Volume Asymmetry (ΔV): <span id="dvVal" class="metric">0.50</span></label>
+            <input type="range" id="dvRange" min="0" max="2" value="0.5" step="0.05">
+        </div>
+        <div class="slider-group">
+            <label>Well Depth (U₀): <span id="uVal" class="metric">5.0</span></label>
+            <input type="range" id="uRange" min="1" max="10" value="5" step="0.5">
+        </div>
+        <div id="statusBox" style="display: flex; align-items: center; justify-content: center;">
+            <span id="stabilityLabel">GATE STATUS: <span id="statusText" style="color:#00ff00">OK (BISTABLE)</span></span>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const pIn = document.getElementById('pRange');
+        const dvIn = document.getElementById('dvRange');
+        const uIn = document.getElementById('uRange');
+
+        function draw() {
+            const P = parseFloat(pIn.value);
+            const dV = parseFloat(dvIn.value);
+            const U0_mag = parseFloat(uIn.value);
+            
+            document.getElementById('pVal').innerText = P;
+            document.getElementById('dvVal').innerText = dV.toFixed(2);
+            document.getElementById('uVal').innerText = U0_mag.toFixed(1);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Axis
+            ctx.strokeStyle = '#444';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height/2);
+            ctx.lineTo(canvas.width, canvas.height/2);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.strokeStyle = '#00ffcc';
+            ctx.lineWidth = 3;
+
+            let points = [];
+            let minRight = 1000;
+            let minLeft = 1000;
+
+            for (let i = 0; i < canvas.width; i++) {
+                let x = (i - canvas.width / 2) / 100; // Domain approx [-3, 3]
+                // U(x) = a*x^4 - b*x^2 + P*dV*x
+                let y_val = (x**4 - 4*x**2) * (U0_mag/4) + (P * dV * 0.1 * x);
+                let canvasY = canvas.height / 2 + y_val * 10;
+                
+                if (i === 0) ctx.moveTo(i, canvasY);
+                else ctx.lineTo(i, canvasY);
+                
+                if (x < -0.5) minLeft = Math.min(minLeft, y_val);
+                if (x > 0.5) minRight = Math.min(minRight, y_val);
+                points.push({x: i, y: canvasY});
+            }
+            ctx.stroke();
+
+            // Logical Stability Check
+            const barrier = canvas.height/2 - Math.min(...points.map(p => p.y));
+            const diff = Math.abs(minLeft - minRight);
+            const statusText = document.getElementById('statusText');
+            
+            if (diff > U0_mag * 1.5) {
+                statusText.innerText = "FAILED (MONOSTABLE)";
+                statusText.style.color = "#ff5555";
+            } else {
+                statusText.innerText = "OK (BISTABLE)";
+                statusText.style.color = "#00ff00";
+            }
+
+            // Labels
+            ctx.fillStyle = '#aaa';
+            ctx.fillText("State '0'", 100, canvas.height - 20);
+            ctx.fillText("State '1'", 450, canvas.height - 20);
+            ctx.fillText("Potential Energy U(x,P)", 10, 20);
+        }
+
+        [pIn, dvIn, uIn].forEach(el => el.addEventListener('input', draw));
+        draw();
+    </script>
+</body>
+</html>

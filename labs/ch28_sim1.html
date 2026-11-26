@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MNN Inference: Solving by Settling</title>
+    <style>
+        body { font-family: sans-serif; background: #1a1a1a; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; }
+        canvas { border: 1px solid #444; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.5); cursor: crosshair; }
+        .controls { margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #2a2a2a; padding: 15px; border-radius: 8px; }
+        .metric { color: #00ff00; font-family: monospace; font-size: 1.2em; }
+        label { font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; color: #aaa; }
+        button { padding: 8px; background: #444; color: white; border: none; cursor: pointer; }
+        button:hover { background: #666; }
+    </style>
+</head>
+<body>
+    <h2>Ch 28: Equilibrium Inference Lattice</h2>
+    <canvas id="mnnCanvas" width="400" height="400"></canvas>
+    <div class="controls">
+        <div>
+            <label>Input Force (Top-Left Node)</label><br>
+            <input type="range" id="forceRange" min="0" max="100" value="50">
+            <span id="forceVal">50</span>
+        </div>
+        <div>
+            <label>Material Stiffness (k)</label><br>
+            <input type="range" id="stiffRange" min="1" max="200" value="100">
+            <span id="stiffVal">100</span>
+        </div>
+        <div class="metric">Energy Pi: <span id="energyVal">0.0</span></div>
+        <button onclick="resetSim()">Reset Defaults</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mnnCanvas');
+        const ctx = canvas.getContext('2d');
+        const nodes = [];
+        const grid = 5;
+        const spacing = 70;
+        const offset = 60;
+
+        function init() {
+            nodes.length = 0;
+            for (let i = 0; i < grid; i++) {
+                for (let j = 0; j < grid; j++) {
+                    nodes.push({
+                        x: offset + j * spacing,
+                        y: offset + i * spacing,
+                        baseX: offset + j * spacing,
+                        baseY: offset + i * spacing,
+                        u: 0,
+                        fixed: i === grid - 1
+                    });
+                }
+            }
+        }
+
+        function solve() {
+            const force = parseFloat(document.getElementById('forceRange').value);
+            const stiffness = parseFloat(document.getElementById('stiffRange').value);
+            
+            // Simplistic relaxation solver for visual real-time feedback
+            for (let iter = 0; iter < 10; iter++) {
+                nodes[0].u = force / stiffness; // Apply input at (0,0)
+                for (let i = 1; i < nodes.length; i++) {
+                    if (nodes[i].fixed) {
+                        nodes[i].u = 0;
+                        continue;
+                    }
+                    let neighborAvg = 0;
+                    let count = 0;
+                    const row = Math.floor(i / grid);
+                    const col = i % grid;
+                    
+                    // Simple 4-way connectivity
+                    if (row > 0) { neighborAvg += nodes[i-grid].u; count++; }
+                    if (row < grid - 1) { neighborAvg += nodes[i+grid].u; count++; }
+                    if (col > 0) { neighborAvg += nodes[i-1].u; count++; }
+                    if (col < grid - 1) { neighborAvg += nodes[i+1].u; count++; }
+                    
+                    nodes[i].u += (neighborAvg / count - nodes[i].u) * 0.5;
+                }
+            }
+            
+            let energy = 0.5 * stiffness * nodes.reduce((acc, n) => acc + n.u * n.u, 0);
+            document.getElementById('energyVal').innerText = energy.toFixed(2);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Connections
+            ctx.strokeStyle = '#444';
+            for (let i = 0; i < nodes.length; i++) {
+                const row = Math.floor(i / grid);
+                const col = i % grid;
+                if (col < grid - 1) drawLine(nodes[i], nodes[i+1]);
+                if (row < grid - 1) drawLine(nodes[i], nodes[i+grid]);
+            }
+
+            // Draw Nodes
+            nodes.forEach((n, idx) => {
+                ctx.fillStyle = n.fixed ? '#f00' : (idx === 0 ? '#0f0' : '#fff');
+                ctx.beginPath();
+                ctx.arc(n.x, n.y + n.u * 10, 5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function drawLine(n1, n2) {
+            ctx.beginPath();
+            ctx.moveTo(n1.x, n1.y + n1.u * 10);
+            ctx.lineTo(n2.x, n2.y + n2.u * 10);
+            ctx.stroke();
+        }
+
+        function loop() {
+            solve();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        document.getElementById('forceRange').oninput = e => document.getElementById('forceVal').innerText = e.target.value;
+        document.getElementById('stiffRange').oninput = e => document.getElementById('stiffVal').innerText = e.target.value;
+        
+        function resetSim() {
+            document.getElementById('forceRange').value = 50;
+            document.getElementById('stiffRange').value = 100;
+            init();
+        }
+
+        init();
+        loop();
+    </script>
+</body>
+</html>

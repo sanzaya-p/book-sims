@@ -1,0 +1,103 @@
+<!DOCTYPE html><html><head><style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+.card { background: #1e1e1e; padding: 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 100%; max-width: 800px; }
+canvas { background: #000; border: 1px solid #333; border-radius: 8px; cursor: crosshair; width: 100%; height: 350px; }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+.control-group { display: flex; flex-direction: column; }
+label { font-size: 13px; color: #aaa; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+input[type=range] { width: 100%; cursor: pointer; }
+.stats { margin-top: 20px; padding: 15px; background: #252525; border-radius: 8px; border-left: 4px solid #4caf50; font-family: monospace; }
+.monostable { border-left-color: #f44336; }
+</style></head><body>
+<div class="card">
+    <h2>10.4 Monostability Collapse</h2>
+    <canvas id="wellCanvas"></canvas>
+    <div class="controls">
+        <div class="control-group">
+            <label>Asymmetry (c): <span id="cVal">0.1</span></label>
+            <input type="range" id="cSlider" min="-8" max="8" step="0.1" value="0.5">
+        </div>
+        <div class="control-group">
+            <label>Buckling (b): <span id="bVal">2.0</span></label>
+            <input type="range" id="bSlider" min="0.5" max="10" step="0.1" value="4.0">
+        </div>
+    </div>
+    <div id="statsPanel" class="stats">Equilibria: Detecting...</div>
+</div>
+<script>
+const canvas = document.getElementById('wellCanvas');
+const ctx = canvas.getContext('2d');
+const cSlider = document.getElementById('cSlider');
+const bSlider = document.getElementById('bSlider');
+const statsPanel = document.getElementById('statsPanel');
+
+function getV(x, a, b, c) {
+    return a * Math.pow(x, 4) - b * Math.pow(x, 2) + c * x;
+}
+
+function getF(x, a, b, c) {
+    return 4 * a * Math.pow(x, 3) - 2 * b * x + c;
+}
+
+function draw() {
+    const a = 1.0;
+    const b = parseFloat(bSlider.value);
+    const c = parseFloat(cSlider.value);
+    document.getElementById('cVal').innerText = c.toFixed(2);
+    document.getElementById('bVal').innerText = b.toFixed(2);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw Axes
+    ctx.strokeStyle = '#333';
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2);
+    ctx.moveTo(canvas.width/2, 0); ctx.lineTo(canvas.width/2, canvas.height);
+    ctx.stroke();
+
+    // Plot Potential
+    ctx.strokeStyle = '#4caf50';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    let stableCount = 0;
+    let points = [];
+
+    for (let i = 0; i < canvas.width; i++) {
+        const x_coord = (i - canvas.width/2) / 60;
+        const y_val = getV(x_coord, a, b, c);
+        const canvas_y = canvas.height/2 + (y_val * 10) - (b*2); 
+        if (i === 0) ctx.moveTo(i, canvas_y); else ctx.lineTo(i, canvas_y);
+        points.push({x: x_coord, y: canvas_y, rawX: i});
+    }
+    ctx.stroke();
+
+    // Solve for Equilibria (Newton's method simplistic for visualization)
+    let equilibria = [];
+    for (let x = -4; x <= 4; x += 0.1) {
+        let root = x;
+        for(let j=0; j<5; j++) root = root - getF(root, a, b, c) / (12*a*root*root - 2*b);
+        if (Math.abs(getF(root, a, b, c)) < 0.001) {
+            if (!equilibria.some(e => Math.abs(e.x - root) < 0.01)) {
+                const d2V = 12*a*root*root - 2*b;
+                equilibria.push({x: root, stable: d2V > 0});
+            }
+        }
+    }
+
+    equilibria.forEach(eq => {
+        const canvX = canvas.width/2 + eq.x * 60;
+        const canvY = canvas.height/2 + getV(eq.x, a, b, c) * 10 - (b*2);
+        ctx.fillStyle = eq.stable ? '#4caf50' : '#f44336';
+        ctx.beginPath();
+        ctx.arc(canvX, canvY, 6, 0, Math.PI*2);
+        ctx.fill();
+        if (eq.stable) stableCount++;
+    });
+
+    statsPanel.className = stableCount < 2 ? 'stats monostable' : 'stats';
+    statsPanel.innerText = `Stable States: ${stableCount} | Mode: ${stableCount < 2 ? 'MONOSTABLE (Bit Rot)' : 'BISTABLE (Memory)'}\nBias Parameter c: ${c.toFixed(3)}`;
+    
+    requestAnimationFrame(draw);
+}
+draw();
+</script></body></html>
